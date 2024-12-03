@@ -3,10 +3,6 @@
 #include "transmission.h"
 #include "utils.h"
 
-std::thread *out_thread;
-std::thread *in_thread;
-std::thread *timeout_thread;
-
 /** Defining controls for behaviour */
 
 volatile bool stop = false;
@@ -122,6 +118,9 @@ void sending_logic()
 
         header_transm.send_header_msg(f_name, size);
         header_transm.run_main_body([](std::vector<MainEvent> ev) {});
+        if (stop) {
+            return;
+        }
     }
 
     // std::cout << "All 1 sent header messages were ackd." << std::endl;
@@ -144,6 +143,9 @@ void sending_logic()
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
             file_transm.continue_stream_file(DATA_LEN);
         });
+        if (stop) {
+            return;
+        }
 
         std::string all_string =
             std::string((char *)file_transm.recvd_msgs[0].content.get_data());
@@ -166,6 +168,9 @@ void receiving_logic()
         Transmission header_transm{1, main_queue, out_queue, 0};
         std::cout << "Bout to run main body" << std::endl;
         header_transm.run_main_body([](std::vector<MainEvent> ev) {});
+        if (stop) {
+            return;
+        }
         std::string all_string =
             std::string((char *)header_transm.recvd_msgs[0].content.get_data());
         size_t start = all_string.find("%*%", 9);
@@ -197,6 +202,9 @@ void receiving_logic()
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
             file_transm.receive_stream_file(ev);
         });
+        if (stop) {
+            return;
+        }
 
         src_ip = file_transm.src_ip;
 
@@ -218,6 +226,10 @@ void receiving_logic()
         chcksum_transm.run_main_body([](std::vector<MainEvent> ev) {});
     }
 
+    if (stop) {
+        return;
+    }
+
     // TODO: Sliding window algorithm.
     // TODO: Think about the IDs... careful about re-sending messages, they will
     // have a different ID in the current configuration!!!!
@@ -233,9 +245,9 @@ int main(int argc, char *argv[])
 {
     process_args(argc, argv);
 
-    out_thread = new std::thread{out_thread_main};
-    in_thread = new std::thread{in_thread_main};
-    timeout_thread = new std::thread{timeout_thread_main, RESEND_DELAY};
+    std::thread out_thread{out_thread_main};
+    std::thread in_thread{in_thread_main};
+    std::thread timeout_thread{timeout_thread_main, RESEND_DELAY};
 
     setup_sigint_handler();
 
@@ -245,6 +257,12 @@ int main(int argc, char *argv[])
         receiving_logic();
 
     terminate(0);
+
+    out_thread.join();
+    in_thread.join();
+    timeout_thread.join();
+
+    std::cout << "Bye!" << std::endl;
     return 0;
 };
 
@@ -322,22 +340,6 @@ void terminate(int s)
 
     main_queue.cond.notify_all();
     out_queue.cond.notify_all();
-
-    out_thread->join();
-    in_thread->join();
-    timeout_thread->join();
-
-    delete out_thread;
-    delete in_thread;
-    delete timeout_thread;
-
-    out_thread = NULL;
-    in_thread = NULL;
-    timeout_thread = NULL;
-
-    std::cout << "Bye!" << std::endl;
-
-    exit(0);
 }
 
 void setup_sigint_handler()

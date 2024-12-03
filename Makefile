@@ -2,7 +2,7 @@
 CXX = g++-14
 
 # Compiler flags
-CXXFLAGS = -Wall -Wextra -std=c++17 -g -I./include
+CXXFLAGS = -Wall -Wextra -pthread -std=c++17 -g -I./include
 
 # Target executable name
 TARGET = udp_comms
