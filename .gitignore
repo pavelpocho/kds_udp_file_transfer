@@ -2,5 +2,6 @@ _sample
 _NetDerper
 _CRCpp-master
 build
+data
 .vscode
 udp_comms
