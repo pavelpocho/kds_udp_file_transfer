@@ -195,8 +195,9 @@ void Transmission::continue_stream_file(std::size_t chunk_size)
 
 void Transmission::prep_receive_file(const std::string &f_name)
 {
-    // TODO: Use actual fname!
-    file_o.open("./data/" + f_name, std::ios::binary | std::ios::out);
+    std::string file_path = "./data/" + f_name;
+    std::cout << "FPATH:" << file_path << std::endl;
+    file_o.open(file_path, std::ios::binary | std::ios::out);
     if (!file_o.is_open()) {
         throw std::runtime_error("Couldn't open file for writing :( ");
     }
