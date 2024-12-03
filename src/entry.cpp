@@ -117,7 +117,7 @@ void sending_logic()
     {
         Transmission header_transm{dest_ip, 1, 0, main_queue, out_queue};
 
-        header_transm.send_header_msg(f_name, size);
+        header_transm.send_header_msg(extract_file_name(f_name), size);
         header_transm.run_main_body([](std::vector<MainEvent> ev) {});
         if (stop) {
             return;

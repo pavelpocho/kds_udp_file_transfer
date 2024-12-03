@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -271,5 +272,7 @@ bool packet2msg(std::byte *packet, uint16_t *id, MainEventType *type,
  * @return size_t
  */
 size_t get_file_size(const std::string &f_name);
+
+std::string extract_file_name(const std::string &file_path);
 
 #endif /* __UTILS__ */

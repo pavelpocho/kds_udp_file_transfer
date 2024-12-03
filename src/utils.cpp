@@ -37,3 +37,8 @@ size_t get_file_size(const std::string &f_name)
     file.close();
     return size;
 }
+
+std::string extract_file_name(const std::string &file_path)
+{
+    return std::filesystem::path(file_path).filename().string();
+}

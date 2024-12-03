@@ -196,9 +196,7 @@ void Transmission::continue_stream_file(std::size_t chunk_size)
 void Transmission::prep_receive_file(const std::string &f_name)
 {
     // TODO: Use actual fname!
-    file_o.open(
-        "/Users/pavelpocho/Projects/cvut_24_25/kds_24_25/sem/data/recv.jpeg",
-        std::ios::binary | std::ios::out);
+    file_o.open("./data/" + f_name, std::ios::binary | std::ios::out);
     if (!file_o.is_open()) {
         throw std::runtime_error("Couldn't open file for writing :( ");
     }
@@ -211,7 +209,8 @@ void Transmission::receive_stream_file(std::vector<MainEvent> evs)
     }
 
     for (MainEvent ev : evs) {
-        if (ev.type != MainEventType::M_MSG)
+        // TODO: These checks are duplicate... fix that...
+        if (ev.type != MainEventType::M_MSG || ev.msg_id < this->min_id)
             continue;
 
         // TODO: FIX! THIS WILL RECEIVE THE CHECKSUM AS WELL...
