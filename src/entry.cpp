@@ -115,7 +115,7 @@ void sending_logic()
     /* 1. Send header: Info about file (name, size) */
 
     {
-        Transmission header_transm{dest_ip, 1, 0, main_queue, out_queue};
+        Transmission header_transm{dest_ip, 1, 0, main_queue, out_queue, 0, 0};
 
         header_transm.send_header_msg(extract_file_name(f_name), size);
         header_transm.run_main_body([](std::vector<MainEvent> ev) {});
@@ -138,8 +138,13 @@ void sending_logic()
             (size_t)ceil(size / (float)DATA_LEN) + 1; // Depends on file size!
         std::cout << "File transmission will have len " << out_msg_count
                   << std::endl;
-        Transmission file_transm{dest_ip, out_msg_count, 1, main_queue,
-                                 out_queue};
+        // This will be receiving messages from ID=0, but it will be
+        // acknowledging messages from ID=1:
+        Transmission file_transm{
+            dest_ip, out_msg_count, 1, main_queue, out_queue, 1, 0};
+
+        std::cout << "Size of sent_msgs at start is "
+                  << file_transm.sent_msgs.size() << std::endl;
         file_transm.start_stream_file(f_name, DATA_LEN);
 
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
@@ -167,7 +172,7 @@ void receiving_logic()
     std::string in_f_name;
     size_t in_size;
     {
-        Transmission header_transm{1, main_queue, out_queue, 0};
+        Transmission header_transm{1, main_queue, out_queue, 0, 0};
         std::cout << "Bout to run receiving of headers." << std::endl;
         header_transm.run_main_body([](std::vector<MainEvent> ev) {});
         if (stop) {
@@ -194,13 +199,16 @@ void receiving_logic()
     /* 2. Receive file */
 
     std::string src_ip;
+    size_t msg_count;
 
     {
         // +1 as a ceil, +1 for checksum
         // TODO: Fix edgecase: when file is multiple of DATA_LEN bytes long!
-        size_t msg_count = (size_t)ceil(in_size / (float)DATA_LEN) +
-                           1; // Depends on file size!
-        Transmission file_transm{msg_count, main_queue, out_queue, 1};
+        msg_count = (size_t)ceil(in_size / (float)DATA_LEN) +
+                    1; // Depends on file size!
+        // This will be sending/acknowledging messages from ID=0, but it will be
+        // receiving messages from ID=1:
+        Transmission file_transm{msg_count, main_queue, out_queue, 0, 1};
         file_transm.prep_receive_file(in_f_name);
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
             file_transm.receive_stream_file(ev);
@@ -223,7 +231,8 @@ void receiving_logic()
     /* 3. Send positive/negative checksum confirm */
 
     {
-        Transmission chcksum_transm{src_ip, 1, 0, main_queue, out_queue};
+        Transmission chcksum_transm{
+            src_ip, 1, 0, main_queue, out_queue, 0, msg_count + 1};
 
         chcksum_transm.send_checksum_msg(false);
         chcksum_transm.run_main_body([](std::vector<MainEvent> ev) {});

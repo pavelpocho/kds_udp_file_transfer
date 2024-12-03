@@ -10,9 +10,11 @@ class Transmission
   public:
     Transmission(std::string &dest_ip, size_t out_msg_count,
                  size_t in_msg_count, Queue<MainEvent> &main_queue,
-                 Queue<OutEvent> &out_queue);
+                 Queue<OutEvent> &out_queue, uint16_t min_ack_id,
+                 uint16_t min_msg_id);
     Transmission(size_t in_msg_count, Queue<MainEvent> &main_queue,
-                 Queue<OutEvent> &out_queue, uint16_t min_id);
+                 Queue<OutEvent> &out_queue, uint16_t min_ack_id,
+                 uint16_t min_msg_id);
 
     ~Transmission();
 
@@ -53,7 +55,8 @@ class Transmission
     size_t in_msg_count;
     size_t out_msg_count;
 
-    uint16_t min_id;
+    uint16_t min_ack_id;
+    uint16_t min_msg_id;
 
     TransmissionMode mode;
 

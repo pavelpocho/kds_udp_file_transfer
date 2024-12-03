@@ -6,8 +6,9 @@
 
 Transmission::Transmission(std::string &dest_ip, size_t out_msg_count,
                            size_t in_msg_count, Queue<MainEvent> &main_queue,
-                           Queue<OutEvent> &out_queue)
-    : Transmission(in_msg_count, main_queue, out_queue, 0)
+                           Queue<OutEvent> &out_queue, uint16_t min_ack_id,
+                           uint16_t min_msg_id)
+    : Transmission(in_msg_count, main_queue, out_queue, min_ack_id, min_msg_id)
 {
     this->dest_ip = dest_ip;
     this->out_msg_count = out_msg_count;
@@ -15,14 +16,16 @@ Transmission::Transmission(std::string &dest_ip, size_t out_msg_count,
 }
 
 Transmission::Transmission(size_t in_msg_count, Queue<MainEvent> &main_queue,
-                           Queue<OutEvent> &out_queue, uint16_t min_id)
+                           Queue<OutEvent> &out_queue, uint16_t min_ack_id,
+                           uint16_t min_msg_id)
     : main_queue{main_queue}, out_queue{out_queue}
 {
     this->dest_ip = "";
     this->in_msg_count = in_msg_count;
     this->out_msg_count = 0;
     this->mode = TransmissionMode::RECEIVE;
-    this->min_id = min_id;
+    this->min_ack_id = min_ack_id;
+    this->min_msg_id = min_msg_id;
 }
 
 Transmission::~Transmission()
@@ -53,6 +56,8 @@ void Transmission::send_checksum_msg(bool match)
 
 void Transmission::send_msg(const std::byte *data, size_t length)
 {
+    std::cout << "Just before sending, len of sent is " << sent_msgs.size()
+              << std::endl;
     std::cout << "Sending a message with id " << next_id << std::endl;
     const uint16_t id = next_id++;
     SentMessage sent_message{.ackd = false,
@@ -71,7 +76,7 @@ void Transmission::receive_msg(MainEvent ev)
 {
     // If received duplicate of message which failed to be
     // properly acknowledged before, discard it:
-    if (ev.msg_id < this->min_id) {
+    if (ev.msg_id < this->min_msg_id) {
         return;
     }
     std::cout << "Recvd size: " << recvd_msgs.size() << std::endl;
@@ -83,6 +88,7 @@ void Transmission::receive_msg(MainEvent ev)
             .received_at = std::chrono::high_resolution_clock::now(),
         };
     }
+    std::cout << "Checking completion from receiving msg..." << std::endl;
     check_completion();
 }
 
@@ -91,7 +97,15 @@ void Transmission::receive_msg(MainEvent ev)
 // size of it is reduced...
 void Transmission::set_ack(MainEvent ev)
 {
+    // If received duplicate of message which failed to be
+    // properly acknowledged before, discard it:
+    // This check is here like three times...
+    if (ev.msg_id < this->min_ack_id) {
+        return;
+    }
+    std::cout << "Got ack for msg id " << ev.msg_id << std::endl;
     sent_msgs[ev.msg_id].ackd = (int)ev.content.get_data()[0] > 0;
+    std::cout << "Checking completion from receiving ACK..." << std::endl;
     check_completion();
 }
 
@@ -111,6 +125,10 @@ void Transmission::check_completion()
 
     std::cout << "Sent size: " << sent_msgs.size()
               << ", out msg count: " << this->out_msg_count << std::endl;
+
+    for (auto s : sent_msgs) {
+        std::cout << "Already send message ID: " << s.second.id << std::endl;
+    }
 
     std::cout << "Are all ackd?: " << all_ackd << std::endl;
 
@@ -211,7 +229,7 @@ void Transmission::receive_stream_file(std::vector<MainEvent> evs)
 
     for (MainEvent ev : evs) {
         // TODO: These checks are duplicate... fix that...
-        if (ev.type != MainEventType::M_MSG || ev.msg_id < this->min_id)
+        if (ev.type != MainEventType::M_MSG || ev.msg_id < this->min_msg_id)
             continue;
 
         // TODO: FIX! THIS WILL RECEIVE THE CHECKSUM AS WELL...
