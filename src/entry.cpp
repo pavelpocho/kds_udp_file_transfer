@@ -123,7 +123,7 @@ void sending_logic()
         }
     }
 
-    // std::cout << "All 1 sent header messages were ackd." << std::endl;
+    std::cout << "All 1 sent header messages were ackd." << std::endl;
     // std::cout << "Press enter to continue." << std::endl;
     // std::string s;
     // std::cin >> s;
@@ -166,7 +166,7 @@ void receiving_logic()
     size_t in_size;
     {
         Transmission header_transm{1, main_queue, out_queue, 0};
-        std::cout << "Bout to run main body" << std::endl;
+        std::cout << "Bout to run receiving of headers." << std::endl;
         header_transm.run_main_body([](std::vector<MainEvent> ev) {});
         if (stop) {
             return;

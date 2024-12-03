@@ -104,6 +104,14 @@ void Transmission::check_completion()
         }
     }
 
+    std::cout << "Recvd size: " << recvd_msgs.size()
+              << ", in msg count: " << this->in_msg_count << std::endl;
+
+    std::cout << "Sent size: " << sent_msgs.size()
+              << ", in msg count: " << this->out_msg_count << std::endl;
+
+    std::cout << "Ack: " << all_ackd << std::endl;
+
     this->done = recvd_msgs.size() == this->in_msg_count &&
                  sent_msgs.size() == this->out_msg_count && all_ackd;
 }
