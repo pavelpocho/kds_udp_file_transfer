@@ -57,7 +57,11 @@ enum OutEventType { O_MSG, O_ACK };
 class Content
 {
   public:
-    Content() { this->data = NULL; };
+    Content()
+    {
+        this->data = nullptr;
+        this->length = 0;
+    };
 
     Content(const std::byte *data, size_t length) : length{length}
     {
@@ -84,9 +88,14 @@ class Content
         delete[] data;
 
         // Copy the data
-        length = other.length;
-        this->data = new std::byte[length];
-        memcpy(this->data, other.data, length);
+        if (other.length > 0) {
+            length = other.length;
+            this->data = new std::byte[length];
+            memcpy(this->data, other.data, length);
+        } else {
+            data = nullptr;
+            lenght = 0;
+        }
 
         return *this;
     }
