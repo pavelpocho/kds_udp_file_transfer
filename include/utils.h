@@ -94,7 +94,7 @@ class Content
             memcpy(this->data, other.data, length);
         } else {
             data = nullptr;
-            lenght = 0;
+            length = 0;
         }
 
         return *this;
