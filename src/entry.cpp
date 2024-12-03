@@ -2,6 +2,7 @@
 #include "sender.h"
 #include "transmission.h"
 #include "utils.h"
+#include <math.h>
 
 /** Defining controls for behaviour */
 
@@ -133,7 +134,8 @@ void sending_logic()
     {
         // +1 is for checksum, +1 for ceil of file size
         // TODO: Fix edgecase: when file is multiple of DATA_LEN bytes long!
-        size_t out_msg_count = size / DATA_LEN + 1 + 1; // Depends on file size!
+        size_t out_msg_count =
+            ceil(size / DATA_LEN) + 1; // Depends on file size!
         std::cout << "File transmission will have len " << out_msg_count
                   << std::endl;
         Transmission file_transm{dest_ip, out_msg_count, 1, main_queue,
@@ -196,7 +198,8 @@ void receiving_logic()
     {
         // +1 as a ceil, +1 for checksum
         // TODO: Fix edgecase: when file is multiple of DATA_LEN bytes long!
-        size_t msg_count = in_size / DATA_LEN + 1 + 1; // Depends on file size!
+        size_t msg_count =
+            ceil(in_size / DATA_LEN) + 1; // Depends on file size!
         Transmission file_transm{msg_count, main_queue, out_queue, 1};
         file_transm.prep_receive_file(f_name);
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {

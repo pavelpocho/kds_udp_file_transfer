@@ -22,6 +22,7 @@ Transmission::Transmission(size_t in_msg_count, Queue<MainEvent> &main_queue,
     this->in_msg_count = in_msg_count;
     this->out_msg_count = 0;
     this->mode = TransmissionMode::RECEIVE;
+    this->min_id = min_id;
 }
 
 Transmission::~Transmission()
@@ -109,9 +110,9 @@ void Transmission::check_completion()
               << ", in msg count: " << this->in_msg_count << std::endl;
 
     std::cout << "Sent size: " << sent_msgs.size()
-              << ", in msg count: " << this->out_msg_count << std::endl;
+              << ", out msg count: " << this->out_msg_count << std::endl;
 
-    std::cout << "Ack: " << all_ackd << std::endl;
+    std::cout << "Are all ackd?: " << all_ackd << std::endl;
 
     this->done = recvd_msgs.size() == this->in_msg_count &&
                  sent_msgs.size() == this->out_msg_count && all_ackd;
