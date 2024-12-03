@@ -20,6 +20,7 @@ Transmission::Transmission(size_t in_msg_count, Queue<MainEvent> &main_queue,
 {
     this->dest_ip = "";
     this->in_msg_count = in_msg_count;
+    this->out_msg_count = 0;
     this->mode = TransmissionMode::RECEIVE;
 }
 
