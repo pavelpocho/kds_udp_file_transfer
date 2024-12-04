@@ -31,7 +31,8 @@
 #define PACKET_LEN 1024     // bytes
 #define CRC_LEN 4           // bytes
 #define RESEND_DELAY 100000 // [us] How long to wait before resending a packet.
-#define MAX_RETRIES 10      // Maximum number of times to send a packet.
+#define MAX_RETRIES 20      // Maximum number of times to send a packet.
+#define WINDOW_SIZE 4       // How many packets to have "in the air"
 
 /** Declaring controls for behaviour */
 

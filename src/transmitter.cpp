@@ -83,10 +83,9 @@ void Transmitter::check_resends()
         auto duration = duration_cast<microseconds>(now - m.sent_at);
         if (duration.count() > RESEND_DELAY && !m.ackd) {
             ++m.retries;
-            // TODO: ENABLE THIS:
-            // if (m.retries > MAX_RETRIES) {
-            //     throw std::runtime_error("Out of attempts for packet.");
-            // }
+            if (m.retries > MAX_RETRIES) {
+                throw std::runtime_error("Out of attempts for packet.");
+            }
             OutEvent e{m.content, m.id, dest_ip, OutEventType::O_MSG};
             out_queue.push(e);
         }

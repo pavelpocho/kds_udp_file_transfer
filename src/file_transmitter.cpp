@@ -55,14 +55,11 @@ void FileTransmitter::start_stream_file(const std::string &filename,
 void FileTransmitter::continue_stream_file(std::size_t chunk_size,
                                            std::string &sha)
 {
-    // TODO: ACTUAL N STUFF!
-
-    std::cout << "N sent msgs: " << sent_msgs.size() << std::endl;
     int ackd = 0;
     for (auto &msg : sent_msgs) {
-        ackd += (int)msg.second.ackd;
+        ackd += static_cast<int>(msg.second.ackd);
     }
-    std::cout << "Of those ackd: " << ackd << std::endl;
+    int in_the_air = static_cast<int>(sent_msgs.size()) - ackd;
 
     if (file.tellg() == -1) {
         if (this->sent_checksum) {
@@ -78,7 +75,7 @@ void FileTransmitter::continue_stream_file(std::size_t chunk_size,
         return;
     }
     std::vector<std::byte> buffer(chunk_size);
-    for (int i = 0; i < 1; ++i) {
+    for (int i = 0; i < WINDOW_SIZE - in_the_air; ++i) {
         file.read(reinterpret_cast<char *>(buffer.data()), chunk_size);
         std::size_t bytes_read = file.gcount();
 

@@ -53,7 +53,6 @@ void out_thread_main()
 
 void in_thread_main()
 {
-    std::chrono::high_resolution_clock::now();
     Receiver receiver{sending ? ORIGIN_PORT : DEST_PORT};
 
     while (!stop) {
@@ -95,6 +94,8 @@ void timeout_thread_main(int delay_us)
 
 void sending_logic()
 {
+    using namespace std::chrono;
+
     size_t size = get_file_size(f_name);
     /* 1. Send header: Info about file (name, size) */
 
@@ -120,6 +121,8 @@ void sending_logic()
 
         std::string sha = get_sha(f_name);
 
+        auto start = high_resolution_clock::now();
+
         file_transm.start_stream_file(f_name, DATA_LEN);
         file_transm.run_main_body(
             [&file_transm, &sha](std::vector<MainEvent> _) {
@@ -130,11 +133,17 @@ void sending_logic()
             return;
         }
 
+        auto end = high_resolution_clock::now();
+        auto duration = duration_cast<microseconds>(end - start);
+        auto speed =
+            size / static_cast<float>(duration.count()) * 1000.0f; // [kB / s]
+
         bool checksum_match = file_transm.receive_checksum_confirmation_msg();
         if (!checksum_match)
             std::cout << "File transfer failed." << std::endl;
         else
-            std::cout << "File transfer complete." << std::endl;
+            std::cout << "File transfer complete. (Speed: " << speed << " kB/s)"
+                      << std::endl;
     }
 }
 
