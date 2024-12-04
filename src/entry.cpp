@@ -37,7 +37,7 @@ void setup_sigint_handler();
 
 void out_thread_main()
 {
-    Sender sender{!sending ? ORIGIN_PORT : DEST_PORT};
+    Sender sender{sending ? SENDER_TARGET_PORT : RECEIVER_TARGET_PORT};
 
     while (!stop) {
         std::vector<OutEvent> evs = out_queue.wait_nonempty();
@@ -53,7 +53,7 @@ void out_thread_main()
 
 void in_thread_main()
 {
-    Receiver receiver{sending ? ORIGIN_PORT : DEST_PORT};
+    Receiver receiver{sending ? SENDER_LOCAL_PORT : RECEIVER_LOCAL_PORT};
 
     while (!stop) {
         std::vector<std::byte> packet;
@@ -164,8 +164,9 @@ void receiving_logic()
             return;
 
         header_transm.receive_header_msg(in_f_name, in_size);
-        std::cout << "Receiving file \"" << in_f_name << "\" (" << in_size
-                  << " bytes) from " << src_ip << "..." << std::endl;
+        std::cout << "Receiving file \"" << in_f_name << "\" ("
+                  << static_cast<float>(in_size) / 1000.0f << " kB) from "
+                  << src_ip << "..." << std::endl;
     }
 
     /* 2. Receive file */
