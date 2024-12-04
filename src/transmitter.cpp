@@ -54,8 +54,15 @@ void Transmitter::receive_msg(MainEvent ev)
 
 void Transmitter::set_ack(MainEvent ev)
 {
-    sent_msgs[ev.msg_id].ackd = (int)ev.content[0] > 0;
-    check_completion();
+    /* If this is an ACK for something that was not sent,
+     * then it's a corrupted ACK and it will be missing somewhere... */
+    if (sent_msgs.find(ev.msg_id) != sent_msgs.end()) {
+        sent_msgs[ev.msg_id].ackd = (int)ev.content[0] > 128;
+        if (sent_msgs[ev.msg_id].ackd) {
+            sent_msgs[ev.msg_id].content = std::vector<std::byte>{0};
+        }
+        check_completion();
+    }
 }
 
 void Transmitter::check_completion()
@@ -68,6 +75,12 @@ void Transmitter::check_completion()
             break;
         }
     }
+
+    // std::cout << "Rec: " << recvd_msgs.size() << "/" << this->in_msg_count
+    //           << std::endl;
+    // std::cout << "Sen: " << sent_msgs.size() << "/" << this->out_msg_count
+    //           << std::endl;
+    // std::cout << "Ack: " << all_ackd << std::endl;
 
     this->done = recvd_msgs.size() == this->in_msg_count &&
                  sent_msgs.size() == this->out_msg_count && all_ackd;
@@ -110,9 +123,11 @@ void Transmitter::run_main_body(
                     this->receive_msg(ev);
                 break;
             case MainEventType::M_ACK:
-                /* Ignore acknowledgements intended for previous transmitters.
+                /* Ignore acknowledgements intended for previous
+                 * transmitters.
                  */
-                if (ev.msg_id >= this->min_ack_id)
+                if (ev.msg_id >= this->min_ack_id &&
+                    mode == TransmitterMode::SEND)
                     this->set_ack(ev);
                 break;
             case MainEventType::M_TIO:

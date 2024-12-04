@@ -22,23 +22,32 @@
 #include <unordered_map>
 #include <vector>
 
-/* If launched to receive files, will receive packets ONTO RECEIVER_LOCAL_PORT.
- */
+// #define DERP
+#ifdef DERP
+/* If launched to receive files, will recv packets ONTO RECEIVER_LOCAL_PORT. */
 #define RECEIVER_LOCAL_PORT 25000
 /* If launched to receive files, will send packets TO RECEIVER_TARGET_PORT. */
 #define RECEIVER_TARGET_PORT 26000
-/* If program launched to send file, will receive packets ONTO
- * SENDER_LOCAL_PORT. */
+/* If launched to send file, will recv packets ONTO SENDER_LOCAL_PORT. */
 #define SENDER_LOCAL_PORT 25001
-/* If program launched to send file, will send packets TO
- * SENDER_TARGET_PORT. */
+/* If launched to send file, will send packets TO SENDER_TARGET_PORT. */
 #define SENDER_TARGET_PORT 26001
+#else
+/* If launched to receive files, will recv packets ONTO RECEIVER_LOCAL_PORT. */
+#define RECEIVER_LOCAL_PORT 23000
+/* If launched to receive files, will send packets TO RECEIVER_TARGET_PORT. */
+#define RECEIVER_TARGET_PORT 24000
+/* If launched to send file, will recv packets ONTO SENDER_LOCAL_PORT. */
+#define SENDER_LOCAL_PORT 24000
+/* If launched to send file, will send packets TO SENDER_TARGET_PORT. */
+#define SENDER_TARGET_PORT 23000
+#endif
 
 #define DATA_LEN 1015       // bytes
 #define PACKET_LEN 1024     // bytes
 #define CRC_LEN 4           // bytes
-#define RESEND_DELAY 100000 // [us] How long to wait before resending a packet.
-#define MAX_RETRIES 20      // Maximum number of times to send a packet.
+#define RESEND_DELAY 500000 // [us] How long to wait before resending a packet.
+#define MAX_RETRIES 200     // Maximum number of times to send a packet.
 #define WINDOW_SIZE 100     // How many packets to have "in the air"
 
 /** Declaring controls for behaviour */

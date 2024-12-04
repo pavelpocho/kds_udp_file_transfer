@@ -66,7 +66,9 @@ void in_thread_main()
         MainEvent me = {.content{}, .msg_id{0}, .origin_ip{recvd_ip}, .type{}};
         bool crc_match = packet2msg(packet, me.msg_id, me.type, me.content);
 
-        OutEvent oe = {.content = std::vector<std::byte>{std::byte{crc_match}},
+        OutEvent oe = {.content = std::vector<std::byte>{std::byte{
+                           crc_match ? static_cast<uint8_t>(255)
+                                     : static_cast<uint8_t>(0)}},
                        .msg_id = me.msg_id,
                        .dest_ip = recvd_ip,
                        .type = OutEventType::O_ACK};
@@ -142,8 +144,10 @@ void sending_logic()
         if (!checksum_match)
             std::cout << "File transfer failed." << std::endl;
         else
-            std::cout << "File transfer complete. (Speed: " << speed << " kB/s)"
-                      << std::endl;
+            std::cout << "File transfer complete. (Time "
+                      << static_cast<float>(duration.count()) / 1000000.0f
+                      << "s, Speed: " << speed << " kB/s, " << f_pckt_n
+                      << " packets.)" << std::endl;
     }
 }
 

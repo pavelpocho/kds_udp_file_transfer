@@ -111,13 +111,24 @@ void FileTransmitter::receive_stream_file(std::vector<MainEvent> evs)
          * number of packets because the file packets start at 1), don't add to
          * file. */
         if (ev.type != MainEventType::M_MSG || ev.msg_id < this->min_msg_id ||
-            ev.msg_id >= this->f_pckt_n)
+            ev.msg_id >= this->f_pckt_n ||
+            recvd_fs_msgs.find(ev.msg_id) != recvd_fs_msgs.end())
             continue;
+
+        recvd_fs_msgs[ev.msg_id] = ev.msg_id;
+
+        /* Remove data from message so we don't store it pointlessly... */
+        recvd_msgs[ev.msg_id].content = std::vector<std::byte>{0};
 
         /* If correct packet received, add it to file. */
         /* If wrong packet received, stash it and sort the stash. */
         /* Once correct packet received, add it and as many stashed packets as
          * possible. */
+
+        if (recvd_fs_msgs.size() % 200 == 0)
+            std::cout << "Received byte " << recvd_fs_msgs.size() << " of "
+                      << f_pckt_n << std::endl;
+
         if (ev.msg_id == next_packet_id_to_write) {
             auto &c = ev.content;
             file_o.write((char *)&c[0], c.size());

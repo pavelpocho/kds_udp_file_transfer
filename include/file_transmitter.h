@@ -41,6 +41,7 @@ class FileTransmitter : public Transmitter
     uint32_t f_pckt_n;
     std::vector<PacketShelfItem> packet_shelf;
     SHA256 sha;
+    std::unordered_map<uint32_t, uint32_t> recvd_fs_msgs;
 };
 
 #endif /* __CHECKSUM_TRANSMITTER__ */
