@@ -2,13 +2,13 @@
 CXX = g++-14
 
 # Compiler flags
-CXXFLAGS = -Wall -Wextra -pthread -std=c++17 -g -I./include
+CXXFLAGS = -Wall -Wextra -pthread -std=c++17 -O3 -I./include
 
 # Target executable name
 TARGET = udp_comms
 
 # Source files
-SRCS = receiver.cpp sender.cpp transmission.cpp utils.cpp entry.cpp
+SRCS = receiver.cpp sender.cpp transmitter.cpp header_transmitter.cpp file_transmitter.cpp checksum_transmitter.cpp utils.cpp entry.cpp sha256.cpp
 
 # Build directory for intermediate files
 BUILD_DIR = build
@@ -17,7 +17,7 @@ BUILD_DIR = build
 OBJS = $(addprefix $(BUILD_DIR)/, $(SRCS:.cpp=.o))
 
 # Libraries to link (none explicitly needed for sys/socket.h)
-# LIBS = 
+# LIBS =
 
 # Default target to build the program
 all: $(BUILD_DIR) $(TARGET)

@@ -22,21 +22,22 @@
 #include <unordered_map>
 #include <vector>
 
-/* If launched to receive filess, will send packets to ORIGIN_PORT. */
+/* If launched to receive files, will send packets to ORIGIN_PORT. */
 #define ORIGIN_PORT 24824
 /* If program launched to send file, will send packets to DEST_PORT. */
 #define DEST_PORT 24825
 
-#define DATA_LEN 1017       // bytes
+#define DATA_LEN 1015       // bytes
 #define PACKET_LEN 1024     // bytes
 #define CRC_LEN 4           // bytes
 #define RESEND_DELAY 100000 // [us] How long to wait before resending a packet.
+#define MAX_RETRIES 10      // Maximum number of times to send a packet.
 
 /** Declaring controls for behaviour */
 
 extern volatile bool stop;
 extern volatile bool sending;
-extern volatile uint16_t next_id;
+extern volatile uint32_t next_id;
 
 /** Possible types of main event types:
  *  - Received message
@@ -52,63 +53,6 @@ enum MainEventType { M_MSG, M_ACK, M_TIO };
 enum OutEventType { O_MSG, O_ACK };
 
 /**
- * @brief Message content class with length.
- *
- */
-class Content
-{
-  public:
-    Content()
-    {
-        this->data = nullptr;
-        this->length = 0;
-    };
-
-    Content(const std::byte *data, size_t length) : length{length}
-    {
-        this->data = new std::byte[length];
-        memcpy(this->data, data, length);
-    };
-
-    Content(const Content &other) : length{other.length}
-    {
-        this->data = new std::byte[length];
-        memcpy(this->data, other.data, length);
-    }
-
-    ~Content() { delete[] this->data; }
-
-    // Copy Assignment Operator
-    Content &operator=(const Content &other)
-    {
-        if (this == &other) { // Self-assignment check
-            return *this;
-        }
-
-        // Free existing memory
-        delete[] data;
-
-        // Copy the data
-        if (other.length > 0) {
-            length = other.length;
-            this->data = new std::byte[length];
-            memcpy(this->data, other.data, length);
-        } else {
-            data = nullptr;
-            length = 0;
-        }
-
-        return *this;
-    }
-
-    const std::byte *get_data() { return data; }
-    size_t length;
-
-  private:
-    std::byte *data;
-};
-
-/**
  * @brief MainEvents are the only way to trigger main thread work.
  * Use cases:
  *
@@ -119,25 +63,12 @@ class Content
  *  - Periodic timeout check from timeout_thread to ensure no
  * messages have been lost.
  */
-class MainEvent
-{
-  public:
-    MainEvent(Content content, int msg_id, std::string origin_ip,
-              MainEventType type)
-    {
-        this->content = content;
-        this->msg_id = msg_id;
-        this->type = type;
-        this->origin_ip = origin_ip;
-    };
-
-    ~MainEvent() {}
-
-    Content content;       /* If rcvd, has content of msg. */
-    int msg_id;            /* Message ID of rcvd/ackd msg. */
-    std::string origin_ip; /* Origin IP of incoming packet.*/
-    MainEventType type;    /* MSG / ACK / TIO. */
-};
+typedef struct {
+    std::vector<std::byte> content; /* If rcvd, has content of msg. */
+    uint32_t msg_id;                /* Message ID of rcvd/ackd msg. */
+    std::string origin_ip;          /* Origin IP of incoming packet.*/
+    MainEventType type;             /* MSG / ACK / TIO. */
+} MainEvent;
 
 /**
  * @brief OutEvents are the only way to trigger out_thread work.
@@ -151,25 +82,12 @@ class MainEvent
  * Sending message acks is done without involving the main thread.
  *
  */
-class OutEvent
-{
-  public:
-    OutEvent(Content content, int msg_id, std::string dest_ip,
-             OutEventType type)
-    {
-        this->content = content;
-        this->msg_id = msg_id;
-        this->type = type;
-        this->dest_ip = dest_ip;
-    };
-
-    ~OutEvent() {}
-
-    Content content;     /* If rcvd, has content of msg. */
-    int msg_id;          /* Message ID of rcvd/ackd msg. */
-    std::string dest_ip; /* Origin IP of incoming packet.*/
-    OutEventType type;   /* MSG / ACK / TIO. */
-};
+typedef struct {
+    std::vector<std::byte> content; /* If rcvd, has content of msg. */
+    uint32_t msg_id;                /* Message ID of rcvd/ackd msg. */
+    std::string dest_ip;            /* Origin IP of incoming packet.*/
+    OutEventType type;              /* MSG / ACK / TIO. */
+} OutEvent;
 
 /**
  * @brief Generic queue suited for multi-threaded work.
@@ -217,14 +135,14 @@ typedef std::chrono::_V2::system_clock::time_point time_p;
 
 typedef struct {
     bool ackd;
-    Content content;
-    uint16_t id;
+    std::vector<std::byte> content;
+    uint32_t id;
     uint8_t retries;
     time_p sent_at;
 } SentMessage;
 
 typedef struct {
-    Content content;
+    std::vector<std::byte> content;
     time_p received_at;
 } RecvdMessage;
 
@@ -247,8 +165,8 @@ typedef struct {
  * @param type
  * @param content
  */
-void msg2packet(std::byte *packet, uint16_t id, OutEventType type,
-                Content &con);
+void msg2packet(std::vector<std::byte> &packet, uint32_t id, OutEventType type,
+                std::vector<std::byte> &data);
 
 /**
  * @brief Packet to message decoding: Rules:
@@ -262,8 +180,8 @@ void msg2packet(std::byte *packet, uint16_t id, OutEventType type,
  *
  * @return bool If CRC matches.
  */
-bool packet2msg(std::byte *packet, uint16_t *id, MainEventType *type,
-                std::byte *data);
+bool packet2msg(std::vector<std::byte> &packet, uint32_t &id,
+                MainEventType &type, std::vector<std::byte> &data);
 
 /**
  * @brief Get the file size.
@@ -274,5 +192,7 @@ bool packet2msg(std::byte *packet, uint16_t *id, MainEventType *type,
 size_t get_file_size(const std::string &f_name);
 
 std::string extract_file_name(const std::string &file_path);
+
+std::string get_sha(const std::string &f_path);
 
 #endif /* __UTILS__ */

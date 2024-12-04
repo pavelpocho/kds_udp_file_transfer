@@ -2,13 +2,13 @@
 
 Receiver::Receiver(int own_port)
 {
-    /* Step 1: Create socket. */
+    /* Create socket. */
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         std::cerr << "Error: Socket creation failed" << std::endl;
     }
 
-    /* Step 2: Set up own and receiver address */
+    /* Set up own and receiver address */
 
     recv_addr_len = sizeof(recv_addr);
     memset(&own_addr, 0, sizeof(own_addr));
@@ -18,7 +18,7 @@ Receiver::Receiver(int own_port)
     own_addr.sin_addr.s_addr = INADDR_ANY;
     own_addr.sin_port = htons(own_port);
 
-    /* Step 3: Bind socket. */
+    /* Bind socket to be able to listen on specific port. */
 
     if (bind(sockfd, (const struct sockaddr *)&own_addr, sizeof(own_addr)) <
         0) {
@@ -26,7 +26,7 @@ Receiver::Receiver(int own_port)
         close(sockfd);
     }
 
-    /* Step 4: Set socket options (block timeout to for responsiveness...) */
+    /* Set socket blocking timeout to maintain responsiveness. */
 
     struct timeval timeout;
     timeout.tv_sec = 0;
@@ -36,23 +36,21 @@ Receiver::Receiver(int own_port)
 
 Receiver::~Receiver() { close(sockfd); }
 
-std::string Receiver::listen_for_packets(std::byte *buffer, size_t buffer_size)
+std::string Receiver::listen_for_packets(std::vector<std::byte> &bytes)
 {
-    memset(buffer, 0, buffer_size);
 
-    ssize_t recv_bytes =
-        recvfrom(sockfd, buffer, buffer_size, 0, (struct sockaddr *)&recv_addr,
+    memset(buffer, 0, PACKET_LEN);
+    ssize_t recvd_bytes =
+        recvfrom(sockfd, buffer, PACKET_LEN, 0, (struct sockaddr *)&recv_addr,
                  &recv_addr_len);
 
-    if (recv_bytes < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return "";
-        } else {
-            std::cout << strerror(errno) << std::endl;
-            perror("recvfrom error");
-            throw std::runtime_error("recvfrom failed.");
-        }
-    } else {
+    if (recvd_bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return "";
+    else if (recvd_bytes < 0)
+        throw std::runtime_error("recvfrom failed.");
+    else {
+        bytes = std::vector<std::byte>{(std::byte *)buffer,
+                                       (std::byte *)buffer + recvd_bytes};
         return inet_ntoa(recv_addr.sin_addr);
     }
 }

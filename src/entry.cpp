@@ -1,6 +1,9 @@
+#include "checksum_transmitter.h"
+#include "file_transmitter.h"
+#include "header_transmitter.h"
 #include "receiver.h"
 #include "sender.h"
-#include "transmission.h"
+#include "transmitter.h"
 #include "utils.h"
 #include <math.h>
 
@@ -8,7 +11,7 @@
 
 volatile bool stop = false;
 volatile bool sending = false;
-volatile uint16_t next_id = 0;
+volatile uint32_t next_id = 0;
 
 /** Global parameters */
 
@@ -28,10 +31,6 @@ void process_args(int argc, char *argv[]);
 void terminate(int s);
 void setup_sigint_handler();
 
-// TODO: With current IDs, there is likely a small limit to the file size!
-// TODO: Also with current sequential IDs, there isn't a way to find position
-// in file. Make that work...
-
 /**************************************************************************/
 /* -------------------------- Main definitions -------------------------- */
 /**************************************************************************/
@@ -43,11 +42,11 @@ void out_thread_main()
     while (!stop) {
         std::vector<OutEvent> evs = out_queue.wait_nonempty();
         for (OutEvent ev : evs) {
-            std::byte packet[PACKET_LEN] = {(std::byte)0};
+            std::vector<std::byte> packet;
             msg2packet(packet, ev.msg_id, ev.type, ev.content);
 
             sender.set_dest_ip(ev.dest_ip);
-            sender.send_packet(packet, PACKET_LEN);
+            sender.send_packet(packet);
         }
     }
 }
@@ -58,41 +57,28 @@ void in_thread_main()
     Receiver receiver{sending ? ORIGIN_PORT : DEST_PORT};
 
     while (!stop) {
-        std::byte packet[PACKET_LEN];
-        std::string recvd_ip = receiver.listen_for_packets(packet, PACKET_LEN);
-        if (recvd_ip == "") /* No packet, would block. */
+        std::vector<std::byte> packet;
+        std::string recvd_ip = receiver.listen_for_packets(packet);
+
+        /* If no packet received, continue to prevent blocking. */
+        if (recvd_ip == "")
             continue;
 
-        uint16_t id;
-        MainEventType type;
-        // TODO: Optimize, two memcpys here
-        std::byte data[DATA_LEN];
-        bool crc_match = packet2msg(packet, &id, &type, data);
+        MainEvent me = {.content{}, .msg_id{0}, .origin_ip{recvd_ip}, .type{}};
+        bool crc_match = packet2msg(packet, me.msg_id, me.type, me.content);
 
-        // TODO: Optimize, don't need full DATA_LEN
-        std::byte datab[DATA_LEN];
-        if (crc_match && type == MainEventType::M_MSG) {
-            /* Send back success. */
-            datab[0] = (std::byte)1;
+        OutEvent oe = {.content = std::vector<std::byte>{std::byte{crc_match}},
+                       .msg_id = me.msg_id,
+                       .dest_ip = recvd_ip,
+                       .type = OutEventType::O_ACK};
 
-            std::cout << "Successfuly received msg: " << id << std::endl;
+        /* If this is a message, send an ACK. */
+        if (me.type == MainEventType::M_MSG)
+            out_queue.push(oe);
 
-            MainEvent me{Content(data, DATA_LEN), id, recvd_ip, type};
+        /* If CRC matches, pass upwards. */
+        if (crc_match)
             main_queue.push(me);
-            OutEvent e{Content(datab, DATA_LEN), id, recvd_ip,
-                       OutEventType::O_ACK};
-            out_queue.push(e);
-        } else if (type == MainEventType::M_MSG) {
-            /* Send back failure. */
-            datab[0] = (std::byte)0;
-            OutEvent e{Content(datab, DATA_LEN), id, recvd_ip,
-                       OutEventType::O_ACK};
-            out_queue.push(e);
-        } else if (crc_match) {
-            /* It's an ack, send that to main. */
-            MainEvent me{Content(data, DATA_LEN), id, recvd_ip, type};
-            main_queue.push(me);
-        }
     }
 }
 
@@ -100,9 +86,7 @@ void timeout_thread_main(int delay_us)
 {
     while (!stop) {
         std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
-        MainEvent e{Content(), 0, "", MainEventType::M_TIO};
-
-        // TODO: Only do this if there messages in the air...
+        MainEvent e{std::vector<std::byte>{}, 0, "", MainEventType::M_TIO};
         main_queue.push(e);
     }
 }
@@ -115,100 +99,74 @@ void sending_logic()
     /* 1. Send header: Info about file (name, size) */
 
     {
-        Transmission header_transm{dest_ip, 1, 0, main_queue, out_queue, 0, 0};
+        HeaderTransmitter header_transm{dest_ip,   1, 0, main_queue,
+                                        out_queue, 0, 0};
 
         header_transm.send_header_msg(extract_file_name(f_name), size);
-        header_transm.run_main_body([](std::vector<MainEvent> ev) {});
+        header_transm.run_main_body([](std::vector<MainEvent> _) { (void)_; });
         if (stop) {
             return;
         }
     }
-
-    std::cout << "All 1 sent header messages were ackd." << std::endl;
-    // std::cout << "Press enter to continue." << std::endl;
-    // std::string s;
-    // std::cin >> s;
 
     /* 2. Send file + receive confirmation of checksum */
 
     {
-        // +1 is for checksum, +1 for ceil of file size
-        // TODO: Fix edgecase: when file is multiple of DATA_LEN bytes long!
-        size_t out_msg_count =
-            (size_t)ceil(size / (float)DATA_LEN) + 1; // Depends on file size!
-        std::cout << "File transmission will have len " << out_msg_count
-                  << std::endl;
-        // This will be receiving messages from ID=0, but it will be
-        // acknowledging messages from ID=1:
-        Transmission file_transm{
-            dest_ip, out_msg_count, 1, main_queue, out_queue, 1, 0};
+        /* Number of packets the file requires. +1 is for checksum. */
+        uint32_t f_pckt_n = (uint32_t)ceil(size / (float)DATA_LEN) + 1;
 
-        std::cout << "Size of sent_msgs at start is "
-                  << file_transm.sent_msgs.size() << std::endl;
+        FileTransmitter file_transm{dest_ip,   f_pckt_n, 1, main_queue,
+                                    out_queue, 1,        0, f_pckt_n};
+
+        std::string sha = get_sha(f_name);
+
         file_transm.start_stream_file(f_name, DATA_LEN);
-
-        file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
-            file_transm.continue_stream_file(DATA_LEN);
-        });
+        file_transm.run_main_body(
+            [&file_transm, &sha](std::vector<MainEvent> _) {
+                (void)_;
+                file_transm.continue_stream_file(DATA_LEN, sha);
+            });
         if (stop) {
             return;
         }
 
-        std::string all_string =
-            std::string((char *)file_transm.recvd_msgs[0].content.get_data());
-        std::cout << "File chcksum confirm: " << all_string << std::endl;
+        bool checksum_match = file_transm.receive_checksum_confirmation_msg();
+        if (!checksum_match)
+            std::cout << "File transfer failed." << std::endl;
+        else
+            std::cout << "File transfer complete." << std::endl;
     }
-
-    std::cout << "All " << size / DATA_LEN + 1 + 1
-              << "sent file messages were ackd." << std::endl;
-
-    std::cout << "File transfer complete." << std::endl;
 }
 
 void receiving_logic()
 {
     /* 1. Receive header: Info about file (name, size) */
 
-    std::string in_f_name;
-    size_t in_size;
+    std::string in_f_name{""};
+    std::string src_ip{""};
+    size_t in_size{0};
+    uint32_t f_pckt_n{0};
+    bool checksum_match{false};
     {
-        Transmission header_transm{1, main_queue, out_queue, 0, 0};
-        std::cout << "Bout to run receiving of headers." << std::endl;
-        header_transm.run_main_body([](std::vector<MainEvent> ev) {});
-        if (stop) {
+        HeaderTransmitter header_transm{1, main_queue, out_queue, 0, 0};
+        header_transm.run_main_body([](std::vector<MainEvent> _) { (void)_; });
+        src_ip = header_transm.src_ip;
+        if (stop)
             return;
-        }
-        std::string all_string =
-            std::string((char *)header_transm.recvd_msgs[0].content.get_data());
-        size_t start = all_string.find("%*%", 9);
-        size_t end = all_string.find("%*%", 12);
-        in_f_name = all_string.substr(start + 3, end - start - 3);
-        memcpy(&in_size,
-               header_transm.recvd_msgs[0].content.get_data() + end + 3,
-               sizeof(size_t));
+
+        header_transm.receive_header_msg(in_f_name, in_size);
+        std::cout << "Receiving file \"" << in_f_name << "\" (" << in_size
+                  << " bytes) from " << src_ip << "..." << std::endl;
     }
-
-    std::cout << "File name: " << in_f_name << std::endl;
-    std::cout << "Size: " << in_size << std::endl;
-
-    // std::cout << "All 1 header msgs were received." << std::endl;
-    // std::cout << "Press enter to continue." << std::endl;
-    // std::string sq;
-    // std::cin >> sq;
 
     /* 2. Receive file */
 
-    std::string src_ip;
-    size_t msg_count;
-
     {
-        // +1 as a ceil, +1 for checksum
-        // TODO: Fix edgecase: when file is multiple of DATA_LEN bytes long!
-        msg_count = (size_t)ceil(in_size / (float)DATA_LEN) +
-                    1; // Depends on file size!
-        // This will be sending/acknowledging messages from ID=0, but it will be
-        // receiving messages from ID=1:
-        Transmission file_transm{msg_count, main_queue, out_queue, 0, 1};
+        /* Number of packets the file requires. +1 is for checksum. */
+        f_pckt_n = (uint32_t)ceil(in_size / (float)DATA_LEN) + 1;
+        FileTransmitter file_transm{f_pckt_n, main_queue, out_queue,
+                                    0,        1,          f_pckt_n};
+
         file_transm.prep_receive_file(in_f_name);
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
             file_transm.receive_stream_file(ev);
@@ -217,40 +175,31 @@ void receiving_logic()
             return;
         }
 
-        src_ip = file_transm.src_ip;
+        /* Important for checksum to calculate correctly. */
+        file_transm.close_write_file();
 
-        // TODO: Check checksum here from disk...
-
-        std::cout << "TODO: Reconstruct file here... " << std::endl;
-        std::cout << "TODO: Last msg is checksum... " << std::endl;
+        std::string dest_md5 = get_sha(in_f_name);
+        std::string src_md5 = file_transm.receive_checksum_msg();
+        checksum_match = dest_md5 == src_md5;
     }
-
-    std::cout << "All " << in_size / DATA_LEN + 1 + 1
-              << " file msgs were received." << std::endl;
 
     /* 3. Send positive/negative checksum confirm */
 
     {
-        Transmission chcksum_transm{
-            src_ip, 1, 0, main_queue, out_queue, 0, msg_count + 1};
+        ChecksumTransmitter chcksum_transm{
+            src_ip, 1, 0, main_queue, out_queue, 0, f_pckt_n + 1};
 
-        chcksum_transm.send_checksum_msg(false);
-        chcksum_transm.run_main_body([](std::vector<MainEvent> ev) {});
+        chcksum_transm.send_checksum_confirmation_msg(checksum_match);
+        chcksum_transm.run_main_body([](std::vector<MainEvent> _) { (void)_; });
+        if (stop) {
+            return;
+        }
+
+        if (!checksum_match)
+            std::cout << "File transfer failed." << std::endl;
+        else
+            std::cout << "File transfer complete." << std::endl;
     }
-
-    if (stop) {
-        return;
-    }
-
-    // TODO: Sliding window algorithm.
-    // TODO: Think about the IDs... careful about re-sending messages, they will
-    // have a different ID in the current configuration!!!!
-
-    // file.run_main_body([] {});
-
-    // std::cout << "Press enter to continue." << std::endl;
-    // std::string s;
-    // std::cin >> s;
 }
 
 int main(int argc, char *argv[])
@@ -345,8 +294,10 @@ void terminate(int s)
     if (stop)
         return;
 
-    std::cout << std::endl
-              << "Waiting for clean exit... (Signal: " << s << ")" << std::endl;
+    if (s > 0)
+        std::cout << std::endl
+                  << "Waiting for clean exit... (Signal: " << s << ")"
+                  << std::endl;
 
     stop = true;
 
@@ -362,38 +313,3 @@ void setup_sigint_handler()
     sigIntHandler.sa_flags = 0;
     sigaction(SIGINT, &sigIntHandler, NULL);
 }
-
-// Story (sending side):
-// 1. File is loaded.
-// 2. Main thread says: send header transmission.
-// 3. Still on main thread: header transmission messages created, added to
-// queue.
-// 4. Out_thread: loads messages in queue which have not yet been sent and
-// sends them.
-// 5. In_thread: receives a packet (ack), signals main with event
-// saying which msg ackd.
-// 6. Main sets relevant msg as ackd, checks if all msgs ackd,
-// if yes, transmission is complete.
-// 7. When all msgs ackd., main loop moves on and sends data. Cycle repeats.
-
-// Story (recv side):
-// 1. In_thread: receives a packet, sends appropriate event (msg) to
-// main.
-// 2. In_thread: If msg and CRC fits, send back ack. Send event with msg to
-// main.
-// 3. Main: Process msg, if it's a START,LEN message, get ready to receive
-// data.
-// 4. Process repeats with data receiving.
-
-// Key points:
-// - Sent and received messages will be local to the main thread - only way
-// to communicate with main thread is via Events
-// - Main thread can send messages to OUT and receive events (msg/ack) from
-// IN with finished message contents or acks.
-// - Main deals with acks only on receiving side, it does not send them.
-
-// Timeouts:
-// - There will be a fourth thread (timeout thread). When any packets are
-// in the air, this thread will periodically signal the main thread to make
-// sure it checks if any packets are timing out. If yes, those will be
-// resent.
