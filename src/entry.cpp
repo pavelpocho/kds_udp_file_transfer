@@ -7,11 +7,15 @@
 #include "utils.h"
 #include <math.h>
 
+#define UINT8(n) static_cast<uint8_t>(n)
+#define FLOAT(n) static_cast<float>(n)
+
 /** Defining controls for behaviour */
 
 volatile bool stop = false;
 volatile bool sending = false;
 volatile uint32_t next_id = 0;
+volatile uint32_t ack_count = 1;
 
 /** Global parameters */
 
@@ -30,6 +34,8 @@ std::string get_own_ip_addr();
 void process_args(int argc, char *argv[]);
 void terminate(int s);
 void setup_sigint_handler();
+
+int fails = 0;
 
 /**************************************************************************/
 /* -------------------------- Main definitions -------------------------- */
@@ -67,15 +73,16 @@ void in_thread_main()
         bool crc_match = packet2msg(packet, me.msg_id, me.type, me.content);
 
         OutEvent oe = {.content = std::vector<std::byte>{std::byte{
-                           crc_match ? static_cast<uint8_t>(255)
-                                     : static_cast<uint8_t>(0)}},
+                           crc_match ? UINT8(255) : UINT8(0)}},
                        .msg_id = me.msg_id,
                        .dest_ip = recvd_ip,
                        .type = OutEventType::O_ACK};
 
         /* If this is a message, send an ACK. */
-        if (me.type == MainEventType::M_MSG)
-            out_queue.push(oe);
+        if (me.type == MainEventType::M_MSG) {
+            for (uint32_t i = 0; i < ack_count; ++i)
+                out_queue.push(oe);
+        }
 
         /* If CRC matches, pass upwards. */
         if (crc_match)
@@ -94,26 +101,24 @@ void timeout_thread_main(int delay_us)
 
 /* Main sending and transmitting logic: */
 
-void sending_logic()
+bool sending_logic()
 {
     using namespace std::chrono;
-
     size_t size = get_file_size(f_name);
-    /* 1. Send header: Info about file (name, size) */
 
+    /* 1. Send header: Info about file (name, size) */
     {
         HeaderTransmitter header_transm{dest_ip,   1, 0, main_queue,
                                         out_queue, 0, 0};
 
         header_transm.send_header_msg(extract_file_name(f_name), size);
         header_transm.run_main_body([](std::vector<MainEvent> _) { (void)_; });
-        if (stop) {
-            return;
-        }
+
+        if (stop)
+            return true;
     }
 
     /* 2. Send file + receive confirmation of checksum */
-
     {
         /* Number of packets the file requires. +1 is for checksum. */
         uint32_t f_pckt_n = (uint32_t)ceil(size / (float)DATA_LEN) + 1;
@@ -125,33 +130,36 @@ void sending_logic()
 
         auto start = high_resolution_clock::now();
 
+        ack_count = 10;
+
         file_transm.start_stream_file(f_name, DATA_LEN);
         file_transm.run_main_body(
             [&file_transm, &sha](std::vector<MainEvent> _) {
                 (void)_;
                 file_transm.continue_stream_file(DATA_LEN, sha);
             });
-        if (stop) {
-            return;
-        }
+
+        if (stop)
+            return true;
 
         auto end = high_resolution_clock::now();
         auto duration = duration_cast<microseconds>(end - start);
-        auto speed =
-            size / static_cast<float>(duration.count()) * 1000.0f; // [kB / s]
+        auto speed = size / FLOAT(duration.count()) * 1000.0f; // [kB / s]
 
         bool checksum_match = file_transm.receive_checksum_confirmation_msg();
         if (!checksum_match)
-            std::cout << "File transfer failed." << std::endl;
+            std::cout << "File transfer failed. Retrying..." << std::endl;
         else
             std::cout << "File transfer complete. (Time "
-                      << static_cast<float>(duration.count()) / 1000000.0f
+                      << FLOAT(duration.count()) / 1000000.0f
                       << "s, Speed: " << speed << " kB/s, " << f_pckt_n
                       << " packets.)" << std::endl;
+
+        return checksum_match;
     }
 }
 
-void receiving_logic()
+bool receiving_logic()
 {
     /* 1. Receive header: Info about file (name, size) */
 
@@ -165,7 +173,7 @@ void receiving_logic()
         header_transm.run_main_body([](std::vector<MainEvent> _) { (void)_; });
         src_ip = header_transm.src_ip;
         if (stop)
-            return;
+            return true;
 
         header_transm.receive_header_msg(in_f_name, in_size);
         std::cout << "Receiving file \"" << in_f_name << "\" ("
@@ -174,7 +182,6 @@ void receiving_logic()
     }
 
     /* 2. Receive file */
-
     {
         /* Number of packets the file requires. +1 is for checksum. */
         f_pckt_n = (uint32_t)ceil(in_size / (float)DATA_LEN) + 1;
@@ -185,9 +192,9 @@ void receiving_logic()
         file_transm.run_main_body([&file_transm](std::vector<MainEvent> ev) {
             file_transm.receive_stream_file(ev);
         });
-        if (stop) {
-            return;
-        }
+
+        if (stop)
+            return true;
 
         /* Important for checksum to calculate correctly. */
         file_transm.close_write_file();
@@ -198,21 +205,22 @@ void receiving_logic()
     }
 
     /* 3. Send positive/negative checksum confirm */
-
     {
         ChecksumTransmitter chcksum_transm{
             src_ip, 1, 0, main_queue, out_queue, 0, f_pckt_n + 1};
 
         chcksum_transm.send_checksum_confirmation_msg(checksum_match);
         chcksum_transm.run_main_body([](std::vector<MainEvent> _) { (void)_; });
-        if (stop) {
-            return;
-        }
+
+        if (stop)
+            return true;
 
         if (!checksum_match)
-            std::cout << "File transfer failed." << std::endl;
+            std::cout << "File transfer failed. Retrying..." << std::endl;
         else
             std::cout << "File transfer complete." << std::endl;
+
+        return checksum_match;
     }
 }
 
@@ -226,10 +234,12 @@ int main(int argc, char *argv[])
 
     setup_sigint_handler();
 
-    if (sending)
-        sending_logic();
-    else
-        receiving_logic();
+    bool done = false;
+    do {
+        next_id = 0;
+        ack_count = 1;
+        done = sending ? sending_logic() : receiving_logic();
+    } while (!done);
 
     terminate(0);
 
@@ -276,9 +286,8 @@ std::string get_own_ip_addr()
     socklen_t addr_len = sizeof(own_addr);
     char local_ip[INET_ADDRSTRLEN];
 
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         std::cerr << "Error: Socket creation failed" << std::endl;
-    }
 
     memset(&remote_addr, 0, sizeof(remote_addr));
     remote_addr.sin_family = AF_INET;
@@ -314,7 +323,6 @@ void terminate(int s)
                   << std::endl;
 
     stop = true;
-
     main_queue.cond.notify_all();
     out_queue.cond.notify_all();
 }

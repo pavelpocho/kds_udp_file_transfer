@@ -1,6 +1,9 @@
 #include "file_transmitter.h"
 #include <algorithm>
 
+#define CHKSUM_MSG_INV "Invalid checksum confirmation: insufficient data."
+#define CHKSUM_DATA_INV "Expected checksum confirmation, got something else."
+
 FileTransmitter::FileTransmitter(std::string &dest_ip, size_t out_msg_count,
                                  size_t in_msg_count,
                                  Queue<MainEvent> &main_queue,
@@ -55,6 +58,12 @@ void FileTransmitter::start_stream_file(const std::string &filename,
 void FileTransmitter::continue_stream_file(std::size_t chunk_size,
                                            std::string &sha)
 {
+    /* If we already got checksum confirmation, it means all content
+     * messages arrived even if we didn't get acks back. */
+    if (did_receive_checksum_confirmation()) {
+        this->done = true;
+    }
+
     int ackd = 0;
     for (auto &msg : sent_msgs) {
         ackd += static_cast<int>(msg.second.ackd);
@@ -125,9 +134,10 @@ void FileTransmitter::receive_stream_file(std::vector<MainEvent> evs)
         /* Once correct packet received, add it and as many stashed packets as
          * possible. */
 
-        if (recvd_fs_msgs.size() % 200 == 0)
-            std::cout << "Received byte " << recvd_fs_msgs.size() << " of "
-                      << f_pckt_n << std::endl;
+        if (recvd_fs_msgs.size() % 10 == 0)
+            std::cout << "Progress: "
+                      << recvd_fs_msgs.size() / (float)f_pckt_n * 100.0f
+                      << "%\r" << std::flush;
 
         if (ev.msg_id == next_packet_id_to_write) {
             auto &c = ev.content;
@@ -157,19 +167,20 @@ void FileTransmitter::receive_stream_file(std::vector<MainEvent> evs)
 bool FileTransmitter::receive_checksum_confirmation_msg()
 {
     const auto &content = recvd_msgs[0].content;
-    if (content.size() < 16) {
-        throw std::runtime_error(
-            "Invalid checksum confirmation: insufficient data.");
-    }
+    if (content.size() < 16)
+        throw std::runtime_error(CHKSUM_MSG_INV);
 
-    // Extract and validate the checksum text
+    /* Extract and validate the checksum confirmation text */
     std::string h_text(reinterpret_cast<const char *>(content.data()) + 3, 6);
-    if (h_text != "CHKSUM") {
-        throw std::runtime_error(
-            "Expected checksum confirmation, but got something else.");
-    }
+    if (h_text != "CHKSUM")
+        throw std::runtime_error(CHKSUM_DATA_INV);
 
     return (char)(content[12]) == '1';
+}
+
+bool FileTransmitter::did_receive_checksum_confirmation()
+{
+    return recvd_msgs.size() == 1;
 }
 
 std::string FileTransmitter::receive_checksum_msg()
@@ -180,9 +191,9 @@ std::string FileTransmitter::receive_checksum_msg()
     const auto &content = recvd_msgs[recvd_msgs.size()].content;
     std::string md5;
     md5.reserve(content.size());
-    for (const auto &byte : content) {
+    for (const auto &byte : content)
         md5.push_back(static_cast<char>(byte));
-    }
+
     return md5;
 }
 

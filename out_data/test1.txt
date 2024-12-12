@@ -1,3 +1,0 @@
-Hello world.
-This is my new fancy text file.
-It ends right here.

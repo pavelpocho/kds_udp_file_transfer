@@ -38,7 +38,6 @@ Receiver::~Receiver() { close(sockfd); }
 
 std::string Receiver::listen_for_packets(std::vector<std::byte> &bytes)
 {
-
     memset(buffer, 0, PACKET_LEN);
     ssize_t recvd_bytes =
         recvfrom(sockfd, buffer, PACKET_LEN, 0, (struct sockaddr *)&recv_addr,

@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
-// #define DERP
+#define DERP
 #ifdef DERP
 /* If launched to receive files, will recv packets ONTO RECEIVER_LOCAL_PORT. */
 #define RECEIVER_LOCAL_PORT 25000
@@ -46,15 +46,16 @@
 #define DATA_LEN 1015       // bytes
 #define PACKET_LEN 1024     // bytes
 #define CRC_LEN 4           // bytes
-#define RESEND_DELAY 500000 // [us] How long to wait before resending a packet.
+#define RESEND_DELAY 300000 // [us] How long to wait before resending a packet.
 #define MAX_RETRIES 200     // Maximum number of times to send a packet.
-#define WINDOW_SIZE 100     // How many packets to have "in the air"
+#define WINDOW_SIZE 4       // How many packets to have "in the air"
 
 /** Declaring controls for behaviour */
 
 extern volatile bool stop;
 extern volatile bool sending;
 extern volatile uint32_t next_id;
+extern volatile uint32_t ack_count;
 
 /** Possible types of main event types:
  *  - Received message
@@ -103,7 +104,7 @@ typedef struct {
     std::vector<std::byte> content; /* If rcvd, has content of msg. */
     uint32_t msg_id;                /* Message ID of rcvd/ackd msg. */
     std::string dest_ip;            /* Origin IP of incoming packet.*/
-    OutEventType type;              /* MSG / ACK / TIO. */
+    OutEventType type;              /* MSG / ACK. */
 } OutEvent;
 
 /**

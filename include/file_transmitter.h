@@ -29,6 +29,8 @@ class FileTransmitter : public Transmitter
     void prep_receive_file(const std::string &f_name);
     void receive_stream_file(std::vector<MainEvent> evs);
     std::string receive_checksum_msg();
+
+    bool did_receive_checksum_confirmation();
     bool receive_checksum_confirmation_msg();
 
     void close_write_file();

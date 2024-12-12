@@ -52,15 +52,31 @@ void Transmitter::receive_msg(MainEvent ev)
     check_completion();
 }
 
+void Transmitter::resend_msg(SentMessage &msg)
+{
+    using namespace std::chrono;
+    auto now = high_resolution_clock::now();
+
+    ++msg.retries;
+    msg.sent_at = now;
+    if (msg.retries > MAX_RETRIES) {
+        throw std::runtime_error("Out of attempts for message.");
+    }
+    OutEvent e{msg.content, msg.id, dest_ip, OutEventType::O_MSG};
+    out_queue.push(e);
+}
+
 void Transmitter::set_ack(MainEvent ev)
 {
     /* If this is an ACK for something that was not sent,
      * then it's a corrupted ACK and it will be missing somewhere... */
     if (sent_msgs.find(ev.msg_id) != sent_msgs.end()) {
         sent_msgs[ev.msg_id].ackd = (int)ev.content[0] > 128;
-        if (sent_msgs[ev.msg_id].ackd) {
+        if (sent_msgs[ev.msg_id].ackd)
             sent_msgs[ev.msg_id].content = std::vector<std::byte>{0};
-        }
+        else
+            resend_msg(sent_msgs[ev.msg_id]);
+
         check_completion();
     }
 }
@@ -76,14 +92,8 @@ void Transmitter::check_completion()
         }
     }
 
-    // std::cout << "Rec: " << recvd_msgs.size() << "/" << this->in_msg_count
-    //           << std::endl;
-    // std::cout << "Sen: " << sent_msgs.size() << "/" << this->out_msg_count
-    //           << std::endl;
-    // std::cout << "Ack: " << all_ackd << std::endl;
-
-    this->done = recvd_msgs.size() == this->in_msg_count &&
-                 sent_msgs.size() == this->out_msg_count && all_ackd;
+    this->done = recvd_msgs.size() >= in_msg_count &&
+                 sent_msgs.size() == out_msg_count && all_ackd;
 }
 
 void Transmitter::check_resends()
@@ -94,14 +104,8 @@ void Transmitter::check_resends()
     for (auto &msg : sent_msgs) {
         auto &m = msg.second;
         auto duration = duration_cast<microseconds>(now - m.sent_at);
-        if (duration.count() > RESEND_DELAY && !m.ackd) {
-            ++m.retries;
-            if (m.retries > MAX_RETRIES) {
-                throw std::runtime_error("Out of attempts for packet.");
-            }
-            OutEvent e{m.content, m.id, dest_ip, OutEventType::O_MSG};
-            out_queue.push(e);
-        }
+        if (duration.count() > RESEND_DELAY && !m.ackd)
+            resend_msg(m);
     }
 }
 

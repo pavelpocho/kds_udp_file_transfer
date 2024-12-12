@@ -18,8 +18,10 @@ class Transmitter
     ~Transmitter();
 
     /* Base sending/receiving: */
+
     void send_msg(std::vector<std::byte> &data);
     void receive_msg(MainEvent ev);
+    void resend_msg(SentMessage &msg);
     void set_ack(MainEvent ev);
     void check_resends();
 
@@ -46,8 +48,10 @@ class Transmitter
 
     TransmitterMode mode;
 
-  private:
+  protected:
     bool done{false};
+
+  private:
     void check_completion();
 };
 
